@@ -1,10 +1,17 @@
-import { Body, Controller, Get, Param, Post, Put, Delete, Query, HttpCode } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Delete, Query, HttpCode, Patch } from '@nestjs/common';
 import { z } from 'zod';
 import { ZoddValidationPipe } from './pipes/zod-validation-pipe';
 
 const regex = /^\d{3}\.\d{3}\.\d{3}-\d{2}$/;
 
+enum Status {
+  APROVADO = 'APROVADO',
+  NEGADO = 'NEGADO',
+  PENDENTE = 'PENDENTE'
+}
+
 const createProducsBodySchema = z.object({
+  id: z.number().int().positive(),
   name: z.string().min(5).max(20),
   modelo: z.string().min(3).max(10),
   dateManufacture: z.string().date(),
@@ -13,64 +20,96 @@ const createProducsBodySchema = z.object({
   email: z.string().email(),
   cpf: z.string().regex(regex),
 })
+
+const updateProductcsBodySchema = z.object({
+  status: z.enum([Status.APROVADO, Status.NEGADO]),
+
+  name: z.string().min(5).max(20).optional(),
+  modelo: z.string().min(3).max(10).optional(),
+  dateManufacture: z.string().date().optional(),
+  year: z.number().min(1900).max(2025).optional(),
+  brand: z.string().min(5).max(20).optional(),
+  email: z.string().email().optional(),
+  cpf: z.string().regex(regex).optional(),
+});
+
+const patchProductStatusSchema = z.object({
+  status: z.enum(['disponivel', 'indisponivel']).optional(),
+})
+
+const patchProductBodySchema = new ZoddValidationPipe(patchProductStatusSchema);
+
+const updateBodyValidationPipe = new ZoddValidationPipe(updateProductcsBodySchema);
+
 const bodyValidationPipe = new ZoddValidationPipe(createProducsBodySchema);
 
+type PatchProductBodySchema = z.infer<typeof patchProductStatusSchema>;
+
 type CreateProductBodySchema = z.infer<typeof createProducsBodySchema>;
+
+type UpdateProductBodySchema = z.infer<typeof updateProductcsBodySchema>;
 
 @Controller("/product")
 export class AppController {
 
-  products: CreateProductBodySchema[] = [
-    {
-      name: "SmartWatch",
-      modelo: "SPX10",
-      dateManufacture: "2024-05-10",
-      year: 2024,
-      brand: "TechGenius",
-      email: "cliente1@example.com",
-      cpf: "123.456.789-09"
-    },
-    {
-      name: "Iphone",
-      modelo: "16 Pro",
-      dateManufacture: "2024-11-22",
-      year: 2024,
-      brand: "Apple",
-      email: "cliente2@example.com",
-      cpf: "987.654.321-00"
-    }
-  ];
-
+  products: CreateProductBodySchema[] = [];
   constructor() { }
 
   @Post()
   @HttpCode(201)
-  create(@Body(bodyValidationPipe) Body: CreateProductBodySchema): string {
-    return bodyValidationPipe.transform(Body);
+  create(@Body(bodyValidationPipe) body: CreateProductBodySchema): string {
+    const idExist = this.products.find(product => product.id === body.id);
+
+    if (idExist) {
+      return "ID já existe!";
+    }
+
+    
+    this.products.push(body);
+    return "Produto criado com sucesso!";
   }
 
   @Get()
-  get(): CreateProductBodySchema[] {
+  findAll(): CreateProductBodySchema[] {
     return this.products;
   }
 
-  @Put(':name')
+  @Get(':id')
+  findByID(@Param('id') id: string) {
+    const producrExist = this.products.find(product => product.id === parseInt(id));
+
+    if (producrExist) {
+      return producrExist;
+    } else {
+      return "Produto não encontrado.";
+    }
+  }
+
+  @Put(':id')
   @HttpCode(200)
-  update(@Param('name') name: string, @Body(bodyValidationPipe) body: CreateProductBodySchema): string {
-    const productIndex = this.products.findIndex(product => product.name.toLowerCase() === name.toLowerCase());
+  update(@Param('id') id: string, @Body(updateBodyValidationPipe) body: UpdateProductBodySchema): string {
+    const productId = parseInt(id);
+    const productIndex = this.products.findIndex(product => product.id === productId);
 
     if (productIndex !== -1) {
-      this.products[productIndex] = body;
+      const updatedProduct = { 
+        ...this.products[productIndex],  
+        ...body,                         
+        id: this.products[productIndex].id  
+      };
+
+      this.products[productIndex] = updatedProduct;
       return "Produto atualizado com sucesso!";
     } else {
       return "Produto não encontrado.";
     }
   }
 
-  @Delete(':name')
+  @Delete(':id')
   @HttpCode(204)
-  delete(@Param('name') name: string): string {
-    const productIndex = this.products.findIndex(product => product.name.toLowerCase() === name.toLowerCase());
+  deleteById(@Param('id') id: string): string {
+    const productId = parseInt(id);
+    const productIndex = this.products.findIndex(product => product.id === productId);
 
     if (productIndex !== -1) {
 
@@ -78,6 +117,26 @@ export class AppController {
       return "Produto removido com sucesso!";
     } else {
 
+      return "Produto não encontrado.";
+    }
+  }
+
+  @Patch(':id')
+  @HttpCode(200)
+  updateStatus(@Param('id') id: string, @Body(patchProductBodySchema) body: PatchProductBodySchema): string {
+    const productId = parseInt(id);
+    const productIndex = this.products.findIndex(product => product.id === productId);
+
+    if (productIndex !== -1) {
+      const updatedProduct = { 
+        ...this.products[productIndex],  
+        ...body,                         
+        status: body.status 
+      };
+
+      this.products[productIndex] = updatedProduct;
+      return "Produto atualizado com sucesso!";
+    } else {
       return "Produto não encontrado.";
     }
   }
